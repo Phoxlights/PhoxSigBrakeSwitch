@@ -1,0 +1,6 @@
+[submodule "libs/Adafruit_NeoPixel"]
+	path = libs/Adafruit_NeoPixel
+	url = https://github.com/adafruit/Adafruit_NeoPixel.git
+[submodule "libs/PhoxCore"]
+	path = libs/PhoxCore
+	url = https://github.com/Phoxlights/PhoxCore.git
