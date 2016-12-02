@@ -9,13 +9,8 @@
 SignalBrakeConfig defaultConfig = {
     PRIVATE_SSID,
     PRIVATE_PASS,
-    "phoxlight",
+    HOSTNAME,
     CONNECT,
-};
-
-static PrivateNetworkCreds privateCreds = {
-    PRIVATE_SSID,
-    PRIVATE_PASS,
 };
 
 static Identity id = {
@@ -37,8 +32,11 @@ Identity * getIdentity(){
     return &id;
 }
 
-PrivateNetworkCreds * getPrivateCreds(){
-    return &privateCreds;
+PrivateNetworkCreds getPrivateCreds(){
+    PrivateNetworkCreds privateCreds;
+    strcpy(privateCreds.ssid, config.ssid);
+    strcpy(privateCreds.pass, config.pass);
+    return privateCreds;
 }
 
 int loadConfig(){

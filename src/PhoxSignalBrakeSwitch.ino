@@ -4,6 +4,7 @@
 #include <network.h>
 #include <ota.h>
 #include <digitalbutton.h>
+#include <toggleswitch.h>
 #include <eventReceiver.h>
 #include <eventSender.h>
 #include <eventRegistry.h>
@@ -20,6 +21,8 @@ void asplode(char * err){
 StatusLight status;
 SignalBrakeConfig * config = getConfig();
 Identity * id = getIdentity();
+
+IPAddress serverIP = IPAddress(SERVER_IP_UINT32);
 
 void otaStarted(){
     Serial.println("ota start");
@@ -96,6 +99,42 @@ void who(Event * e, Request * r){
     }
 }
 
+void onToggleNeutral(TogglePosition last){
+    Serial.println("toggle neutral");
+
+    int offEvent;
+    if(last == LEFT){
+        offEvent = SIGNAL_L_OFF;
+    } else if(last == RIGHT){
+        offEvent = SIGNAL_R_OFF;
+    }
+
+    int ok = eventSend(serverIP, EVENT_PORT, EVENT_VER, offEvent, 0, 0, 0);
+    if(!ok){
+        Serial.println("couldnt send off event");
+        return;
+    }
+    Serial.println("sent off event");
+}
+void onToggleLeft(TogglePosition last){
+    Serial.println("toggle left");
+    int ok = eventSend(serverIP, EVENT_PORT, EVENT_VER, SIGNAL_L_ON, 0, 0, 0);
+    if(!ok){
+        Serial.println("couldnt send left event");
+        return;
+    }
+    Serial.println("sent left event");
+}
+void onToggleRight(TogglePosition last){
+    Serial.println("toggle right");
+    int ok = eventSend(serverIP, EVENT_PORT, EVENT_VER, SIGNAL_R_ON, 0, 0, 0);
+    if(!ok){
+        Serial.println("couldnt send right event");
+        return;
+    }
+    Serial.println("sent right event");
+}
+
 /*
 void requestRegisterComponent(Event * e, Request * r){
     Serial.printf("someone wants me to register a thing\n");
@@ -112,8 +151,8 @@ void requestRegisterComponent(Event * e, Request * r){
         Serial.printf("failed to write config to disk\n");
     }
 
-    PrivateNetworkCreds * creds = getPrivateCreds();
-    if(!eventSendC(r->client, EVENT_VER, REGISTER_CONFIRM, sizeof(PrivateNetworkCreds), (void*)creds, NULL)){
+    PrivateNetworkCreds creds = getPrivateCreds();
+    if(!eventSendC(r->client, EVENT_VER, REGISTER_CONFIRM, sizeof(PrivateNetworkCreds), (void*)&creds, NULL)){
         Serial.printf("failed to respond to registration request\n");
         return;
     }
@@ -127,8 +166,8 @@ void neverOTAEver(){
     // so don't allow OTA mode to happen
     canOTA = false;
 }
-void enterOTAMode(){
-    Serial.println("entering OTA mode");
+void enterSyncMode(){
+    Serial.println("entering sync mode");
 
     // status light
     byte blue[3] = {0,0,40};
@@ -145,9 +184,9 @@ void enterOTAMode(){
     }
 
     Serial.printf("OTA attempting to connect to ssid: %s, pass: %s\n",
-        OTA_SSID, OTA_PASS);
+        PUBLIC_SSID, PUBLIC_PASS);
 
-    if(!networkConnect(OTA_SSID, OTA_PASS)){
+    if(!networkConnect(PUBLIC_SSID, PUBLIC_PASS)){
         Serial.println("couldnt connect to ota network");
         statusLightSetPattern(status, red, pattern);
         return;
@@ -267,11 +306,16 @@ void setup(){
     statusLightStop(status);
 
     // switch presets
-    DigitalButton btn = buttonCreate(BUTTON_PIN, 50);
-    //buttonOnTap(btn, nextPreset);
     // OTA mode
+    DigitalButton btn = buttonCreate(BUTTON_PIN, 50);
     buttonOnUp(btn, neverOTAEver);
-    buttonOnHold(btn, enterOTAMode, 4000);
+    buttonOnHold(btn, enterSyncMode, 4000);
+
+    // toggle switcheroo
+    ToggleSwitch toggle = toggleCreate(TOGGLE_LEFT_PIN, TOGGLE_RIGHT_PIN, 1);
+    toggleOnNeutral(toggle, onToggleNeutral);
+    toggleOnLeft(toggle, onToggleLeft);
+    toggleOnRight(toggle, onToggleRight);
 
     // debug log heap usage so i can keep an eye out for leaks
     setupEndHeap = ESP.getFreeHeap();
