@@ -12,6 +12,8 @@
 #include <event.h>
 #include <signalbrakeconfig.h>
 
+#define DEV_MODE 1
+
 void asplode(char * err){
     Serial.printf("ERROR: %s\n", err);
     delay(1000);
@@ -180,6 +182,32 @@ void onBrakeUp(){
     Serial.println("sent brake off event");
 }
 
+// events to listen for in run mode
+int startRunListeners(){
+    int ok = eventListen(EVENT_VER, EVENT_PORT);
+    if(ok){
+        eventRegister(PING, ping);
+        eventRegister(WHO, who);
+
+        Serial.printf("Listening for events with EVENT_VER: %i, eventPort: %i\n",
+            EVENT_VER, EVENT_PORT);
+    }
+    return ok;
+}
+
+// events to listen for in sync mode
+int startSyncListeners(){
+    int ok = eventListen(EVENT_VER, EVENT_PORT);
+    if(ok){
+        eventRegister(SET_DEFAULT_CONFIG, restoreDefaultConfig);
+        eventRegister(SET_NETWORK_MODE, setNetworkMode);
+
+        Serial.printf("Listening for events with EVENT_VER: %i, eventPort: %i\n",
+            EVENT_VER, EVENT_PORT);
+    }
+    return ok;
+}
+
 bool canOTA = true;
 void neverOTAEver(){
     // button was released after boot, 
@@ -214,13 +242,9 @@ void enterSyncMode(){
     networkAdvertise(OTA_HOSTNAME);
     Serial.printf("OTA advertising hostname: %s\n", OTA_HOSTNAME);
 
-    // enable SET_NETWORK_MODE endpoint just in case it isnt,
-    // this way a device with NETWORK_MODE off will be able to
-    // be turned back on
-    eventListen(EVENT_VER, EVENT_PORT);
-    eventRegister(SET_NETWORK_MODE, setNetworkMode);
-    Serial.printf("Listening for SET_NETWORK_MODE with EVENT_VER: %i, eventPort: %i\n",
-        EVENT_VER, EVENT_PORT);
+    if(!startSyncListeners()){
+        Serial.println("couldnt start listening for events");
+    }
 
     // ota
     otaOnStart(&otaStarted);
@@ -301,22 +325,22 @@ void setup(){
         Serial.println("couldnt setup status light");
     }
 
-    if(eventListen(EVENT_VER, EVENT_PORT)){
-        eventRegister(PING, ping);
-        eventRegister(WHO, who);
-
-        // these should eventually go to a safer API
-        // (maybe in OTA mode only or something)
-        eventRegister(SET_DEFAULT_CONFIG, restoreDefaultConfig);
-        eventRegister(SET_NETWORK_MODE, setNetworkMode);
+    if(!startRunListeners()){
+        Serial.println("couldnt start listening for events");
     }
 
-    // TODO HACK REMOVE
-    otaOnStart(&otaStarted);
-    otaOnProgress(&otaProgress);
-    otaOnError(&otaError);
-    otaOnEnd(&otaEnd);
-    otaStart();
+    // NOTE - this stuff is unsafe for run mode! make sure
+    // DEV_MODE is off in production!
+    if(DEV_MODE){
+        if(!startSyncListeners()){
+            Serial.println("couldnt start sync mode listeners");
+        }
+        otaOnStart(&otaStarted);
+        otaOnProgress(&otaProgress);
+        otaOnError(&otaError);
+        otaOnEnd(&otaEnd);
+        otaStart();
+    }
 
     byte orange[3] = {20,20,0};
     if(!statusLightSetPattern(status, orange, pattern)){
