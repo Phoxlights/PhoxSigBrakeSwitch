@@ -160,6 +160,14 @@ void requestRegisterComponent(Event * e, Request * r){
 }
 */
 
+void onBrakeDown(){
+    Serial.println("brake down");
+}
+
+void onBrakeUp(){
+    Serial.println("brake up");
+}
+
 bool canOTA = true;
 void neverOTAEver(){
     // button was released after boot, 
@@ -303,7 +311,11 @@ void setup(){
         Serial.println("couldnt setup status light");
     }
 
-    statusLightStop(status);
+    int pattern2[] = {0};
+    byte faded[3] = {0,0,20};
+    if(!statusLightSetPattern(status, faded, pattern2)){
+        Serial.println("couldnt setup status light");
+    }
 
     // switch presets
     // OTA mode
@@ -316,6 +328,11 @@ void setup(){
     toggleOnNeutral(toggle, onToggleNeutral);
     toggleOnLeft(toggle, onToggleLeft);
     toggleOnRight(toggle, onToggleRight);
+
+    // brake sensor
+    DigitalButton brake = buttonCreate(BRAKE_PIN, 50);
+    buttonOnDown(brake, onBrakeDown);
+    buttonOnUp(brake, onBrakeUp);
 
     // debug log heap usage so i can keep an eye out for leaks
     setupEndHeap = ESP.getFreeHeap();
