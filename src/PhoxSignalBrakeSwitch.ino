@@ -161,11 +161,23 @@ void requestRegisterComponent(Event * e, Request * r){
 */
 
 void onBrakeDown(){
-    Serial.println("brake down");
+    Serial.println("brake on");
+    int ok = eventSend(serverIP, EVENT_PORT, EVENT_VER, BRAKE_ON, 0, 0, 0);
+    if(!ok){
+        Serial.println("couldnt send brake on event");
+        return;
+    }
+    Serial.println("sent brake on event");
 }
 
 void onBrakeUp(){
-    Serial.println("brake up");
+    Serial.println("brake off");
+    int ok = eventSend(serverIP, EVENT_PORT, EVENT_VER, BRAKE_OFF, 0, 0, 0);
+    if(!ok){
+        Serial.println("couldnt send brake off event");
+        return;
+    }
+    Serial.println("sent brake off event");
 }
 
 bool canOTA = true;
