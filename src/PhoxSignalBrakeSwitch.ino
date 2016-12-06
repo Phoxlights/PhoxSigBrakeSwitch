@@ -1,4 +1,5 @@
 #include <Esp.h>
+#include <WiFiClient.h>
 #include <loop.h>
 #include <statuslight.h>
 #include <network.h>
@@ -23,6 +24,7 @@ void asplode(char * err){
 StatusLight status;
 SignalBrakeConfig * config = getConfig();
 Identity * id = getIdentity();
+DigitalButton btn = buttonCreate(BUTTON_PIN, 50);
 
 IPAddress serverIP = IPAddress(SERVER_IP_UINT32);
 
@@ -92,7 +94,6 @@ void ping(Event * e, Request * r){
     flash();
 }
 
-//int eventSendC(WiFiClient * client, int version, int opCode, int length, void * body, int responseId){
 void who(Event * e, Request * r){
     Serial.printf("someone wants to know who i am\n");
     if(!eventSendC(r->client, EVENT_VER, WHO, sizeof(Identity), (void*)&id, NULL)){
@@ -137,31 +138,6 @@ void onToggleRight(TogglePosition last){
     Serial.println("sent right event");
 }
 
-/*
-void requestRegisterComponent(Event * e, Request * r){
-    Serial.printf("someone wants me to register a thing\n");
-    // TODO - i suspect some sort of sanitization
-    // and bounds checking should occur here
-    Identity * component = (Identity*)e->body;
-    if(!registerComponent(component)){
-        Serial.printf("failed to register component\n");
-        return;
-    }
-
-    // persist new config to disk
-    if(!writeConfig(config)){
-        Serial.printf("failed to write config to disk\n");
-    }
-
-    PrivateNetworkCreds creds = getPrivateCreds();
-    if(!eventSendC(r->client, EVENT_VER, REGISTER_CONFIRM, sizeof(PrivateNetworkCreds), (void*)&creds, NULL)){
-        Serial.printf("failed to respond to registration request\n");
-        return;
-    }
-    flash();
-}
-*/
-
 void onBrakeDown(){
     Serial.println("brake on");
     int ok = eventSend(serverIP, EVENT_PORT, EVENT_VER, BRAKE_ON, 0, 0, 0);
@@ -180,6 +156,151 @@ void onBrakeUp(){
         return;
     }
     Serial.println("sent brake off event");
+}
+
+int setIdleStatusLight(){
+    int pattern[] = {0};
+    byte faded[3] = {0,0,20};
+    if(!statusLightSetPattern(status, faded, pattern)){
+        Serial.println("couldnt setup status light");
+        return 0;
+    }
+    return 1;
+}
+
+int setBusyStatusLight(){
+    int pattern[] = {250,250,0};
+    byte faded[3] = {0,0,20};
+    if(!statusLightSetPattern(status, faded, pattern)){
+        Serial.println("couldnt setup status light");
+        return 0;
+    }
+    return 1;
+}
+
+int setFailStatusLight(){
+    int pattern[] = {250,250,0};
+    byte red[3] = {255,0,0};
+    if(!statusLightSetPattern(status, red, pattern)){
+        Serial.println("couldnt setup status light");
+        return 0;
+    }
+    return 1;
+}
+
+int setSuccessStatusLight(){
+    int pattern[] = {250,250,0};
+    byte green[3] = {0,255,0};
+    if(!statusLightSetPattern(status, green, pattern)){
+        Serial.println("couldnt setup status light");
+        return 0;
+    }
+    return 1;
+}
+
+void flashFailStatusLight(){
+    setFailStatusLight();
+    delay(3000);
+    // TODO - return to previous status?
+    setIdleStatusLight();
+}
+
+void flashSuccessStatusLight(){
+    setSuccessStatusLight();
+    delay(3000);
+    // TODO - return to previous status?
+    setIdleStatusLight();
+}
+
+bool registrationPending = false;
+
+void resetRegistrationRequest(WiFiClient * client){
+    registrationPending = false;
+    if(client){
+        if(!eventUnListenC(client)){
+            Serial.println("couldn't unlisten registration response client; ignoring");
+        }
+    }
+}
+
+void sendRegistrationRequest(){
+    Serial.println("sending registration request");
+
+    if(registrationPending){
+        Serial.println("but a registration is already pending");
+        flashFailStatusLight();
+        return;
+    }
+
+    if(!setBusyStatusLight()){
+        Serial.println("couldnt setup status light");
+        flashFailStatusLight();
+        return;
+    }
+
+    registrationPending = true;
+    
+    // TODO - avoid using arduino api directly like this
+    WiFiClient * client = new WiFiClient();
+
+    if(!client->connect(serverIP, EVENT_PORT)){
+        Serial.printf("couldnt connect to %s:%i\n", serverIP.toString().c_str(), EVENT_PORT);
+        return;
+    }
+
+    int ok = eventSendC(client, EVENT_VER, REGISTER_COMPONENT,
+        sizeof(Identity), (void*)id, 0);
+
+    if(!ok){
+        Serial.println("couldnt send registration request");
+        flashFailStatusLight();
+        resetRegistrationRequest(client);
+        return;
+    }
+
+    if(!eventListenC(client)){
+        Serial.println("couldnt start listening for registration response");
+        flashFailStatusLight();
+        resetRegistrationRequest(NULL);
+        return;
+    }
+
+    // TODO - setup timeout and call resetRegistrationRequest
+    // if timeout is exceeded
+    Serial.println("sent registration request. now we wait");
+}
+
+void receiveRegistrationResponse(Event * e, Request * r){
+    Serial.println("got registration request response");
+    
+    if(!registrationPending){
+        Serial.println("but there was no pending registration request; ignoring");
+        resetRegistrationRequest(r->client);
+        return;
+    }
+
+    // TODO - put this in a shared location because
+    // it will be used by any phoxdevice
+    struct PrivateNetworkCreds {
+        char ssid[SSID_MAX];
+        char pass[PASS_MAX];
+    };
+
+    // TODO - dont blindly write junk off the network?
+    struct PrivateNetworkCreds * creds = (PrivateNetworkCreds*)e->body;
+    strcpy(config->ssid, creds->ssid);
+    strcpy(config->pass, creds->pass);
+
+    if(!writeConfig(config)){
+        Serial.println("failed to save newly registered network creds");
+        flashFailStatusLight();
+        return;
+    }
+
+    Serial.printf("successfully registered device to ssid: %s\n", config->ssid);
+    flashSuccessStatusLight();
+
+    resetRegistrationRequest(r->client);
 }
 
 // events to listen for in run mode
@@ -201,6 +322,7 @@ int startSyncListeners(){
     if(ok){
         eventRegister(SET_DEFAULT_CONFIG, restoreDefaultConfig);
         eventRegister(SET_NETWORK_MODE, setNetworkMode);
+        eventRegister(REGISTER_CONFIRM, receiveRegistrationResponse);
 
         Serial.printf("Listening for events with EVENT_VER: %i, eventPort: %i\n",
             EVENT_VER, EVENT_PORT);
@@ -252,6 +374,8 @@ void enterSyncMode(){
     otaOnError(&otaError);
     otaOnEnd(&otaEnd);
     otaStart();
+
+    buttonOnHold(btn, sendRegistrationRequest, 3000);
 
     byte green[3] = {0,40,0};
     int pattern2[] = {3000,50,0};
@@ -340,6 +464,8 @@ void setup(){
         otaOnError(&otaError);
         otaOnEnd(&otaEnd);
         otaStart();
+
+        buttonOnTap(btn, sendRegistrationRequest);
     }
 
     byte orange[3] = {20,20,0};
@@ -347,15 +473,8 @@ void setup(){
         Serial.println("couldnt setup status light");
     }
 
-    int pattern2[] = {0};
-    byte faded[3] = {0,0,20};
-    if(!statusLightSetPattern(status, faded, pattern2)){
-        Serial.println("couldnt setup status light");
-    }
-
     // switch presets
     // OTA mode
-    DigitalButton btn = buttonCreate(BUTTON_PIN, 50);
     buttonOnUp(btn, neverOTAEver);
     buttonOnHold(btn, enterSyncMode, 4000);
 
@@ -369,6 +488,10 @@ void setup(){
     DigitalButton brake = buttonCreate(BRAKE_PIN, 50);
     buttonOnDown(brake, onBrakeDown);
     buttonOnUp(brake, onBrakeUp);
+
+    if(!setIdleStatusLight()){
+        Serial.println("couldnt setup status light");
+    }
 
     // debug log heap usage so i can keep an eye out for leaks
     setupEndHeap = ESP.getFreeHeap();
