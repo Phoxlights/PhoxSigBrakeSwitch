@@ -375,7 +375,7 @@ void enterSyncMode(){
     otaOnEnd(&otaEnd);
     otaStart();
 
-    buttonOnHold(btn, sendRegistrationRequest, 3000);
+    buttonOnTap(btn, sendRegistrationRequest);
 
     byte green[3] = {0,40,0};
     int pattern2[] = {3000,50,0};
