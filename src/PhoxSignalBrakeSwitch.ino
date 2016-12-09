@@ -330,12 +330,6 @@ int startSyncListeners(){
     return ok;
 }
 
-bool canOTA = true;
-void neverOTAEver(){
-    // button was released after boot, 
-    // so don't allow OTA mode to happen
-    canOTA = false;
-}
 void enterSyncMode(){
     Serial.println("entering sync mode");
 
@@ -384,9 +378,28 @@ void enterSyncMode(){
     }
 }
 
+int shouldEnterSyncMode(){
+    int buttonPosition;
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    digitalWrite(BUTTON_PIN, HIGH);
+    buttonPosition = digitalRead(BUTTON_PIN);
+
+    for(int i = 0; i < 5; i++){
+        if(buttonPosition == HIGH){
+            return 0;
+        }
+        delay(200);
+    }
+
+    if(buttonPosition == HIGH){
+        return 0;
+    }
+
+    return 1;
+}
+
 void setup(){
     Serial.begin(115200);
-    delay(1000);
     Serial.println("\n");
 
     setupStartHeap = ESP.getFreeHeap();
@@ -408,6 +421,12 @@ void setup(){
     byte blue[3] = {0,0,40};
     if(!statusLightSetPattern(status, blue, pattern)){
         Serial.println("couldnt setup status light");
+    }
+
+    if(shouldEnterSyncMode()){
+        Serial.println("going to sync mode");
+        enterSyncMode();
+        return;
     }
 
     // start network
@@ -472,11 +491,6 @@ void setup(){
     if(!statusLightSetPattern(status, orange, pattern)){
         Serial.println("couldnt setup status light");
     }
-
-    // switch presets
-    // OTA mode
-    buttonOnUp(btn, neverOTAEver);
-    buttonOnHold(btn, enterSyncMode, 4000);
 
     // toggle switcheroo
     ToggleSwitch toggle = toggleCreate(TOGGLE_LEFT_PIN, TOGGLE_RIGHT_PIN, 1);

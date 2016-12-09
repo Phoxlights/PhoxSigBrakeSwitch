@@ -18,7 +18,7 @@
 
 // 192.168.4.1 17082560
 // 192.168.43.20 338405568
-#define SERVER_IP_UINT32 338405568
+#define SERVER_IP_UINT32 17082560
 
 #define HOSTNAME "phoxsigbrake"
 #define OTA_HOSTNAME "phoxsigbrakeota"
