@@ -245,6 +245,8 @@ void sendRegistrationRequest(){
 
     if(!client->connect(serverIP, EVENT_PORT)){
         Serial.printf("couldnt connect to %s:%i\n", serverIP.toString().c_str(), EVENT_PORT);
+        flashFailStatusLight();
+        resetRegistrationRequest(client);
         return;
     }
 
@@ -358,10 +360,6 @@ void enterSyncMode(){
     networkAdvertise(OTA_HOSTNAME);
     Serial.printf("OTA advertising hostname: %s\n", OTA_HOSTNAME);
 
-    if(!startSyncListeners()){
-        Serial.println("couldnt start listening for events");
-    }
-
     // ota
     otaOnStart(&otaStarted);
     otaOnProgress(&otaProgress);
@@ -422,6 +420,11 @@ void setup(){
     if(!statusLightSetPattern(status, blue, pattern)){
         Serial.println("couldnt setup status light");
     }
+
+    // HACK - works around issue where this device
+    // cannot make tcp connections to an esp which
+    // is serving as an AP
+    WiFi.persistent(false);
 
     if(shouldEnterSyncMode()){
         Serial.println("going to sync mode");
