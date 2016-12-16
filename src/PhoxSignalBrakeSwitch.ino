@@ -12,8 +12,9 @@
 #include <objstore.h>
 #include <event.h>
 #include <signalbrakeconfig.h>
+#include "status.h"
 
-#define DEV_MODE 1
+#define DEV_MODE 0
 
 void asplode(char * err){
     Serial.printf("ERROR: %s\n", err);
@@ -158,60 +159,6 @@ void onBrakeUp(){
     Serial.println("sent brake off event");
 }
 
-int setIdleStatusLight(){
-    int pattern[] = {0};
-    byte faded[3] = {0,0,20};
-    if(!statusLightSetPattern(status, faded, pattern)){
-        Serial.println("couldnt setup status light");
-        return 0;
-    }
-    return 1;
-}
-
-int setBusyStatusLight(){
-    int pattern[] = {250,250,0};
-    byte faded[3] = {0,0,20};
-    if(!statusLightSetPattern(status, faded, pattern)){
-        Serial.println("couldnt setup status light");
-        return 0;
-    }
-    return 1;
-}
-
-int setFailStatusLight(){
-    int pattern[] = {250,250,0};
-    byte red[3] = {255,0,0};
-    if(!statusLightSetPattern(status, red, pattern)){
-        Serial.println("couldnt setup status light");
-        return 0;
-    }
-    return 1;
-}
-
-int setSuccessStatusLight(){
-    int pattern[] = {250,250,0};
-    byte green[3] = {0,255,0};
-    if(!statusLightSetPattern(status, green, pattern)){
-        Serial.println("couldnt setup status light");
-        return 0;
-    }
-    return 1;
-}
-
-void flashFailStatusLight(){
-    setFailStatusLight();
-    delay(3000);
-    // TODO - return to previous status?
-    setIdleStatusLight();
-}
-
-void flashSuccessStatusLight(){
-    setSuccessStatusLight();
-    delay(3000);
-    // TODO - return to previous status?
-    setIdleStatusLight();
-}
-
 bool registrationPending = false;
 
 void resetRegistrationRequest(WiFiClient * client){
@@ -228,15 +175,11 @@ void sendRegistrationRequest(){
 
     if(registrationPending){
         Serial.println("but a registration is already pending");
-        flashFailStatusLight();
+        flashFailStatusLight(status);
         return;
     }
 
-    if(!setBusyStatusLight()){
-        Serial.println("couldnt setup status light");
-        flashFailStatusLight();
-        return;
-    }
+    setBusyStatusLight(status);
 
     registrationPending = true;
     
@@ -245,7 +188,7 @@ void sendRegistrationRequest(){
 
     if(!client->connect(serverIP, EVENT_PORT)){
         Serial.printf("couldnt connect to %s:%i\n", serverIP.toString().c_str(), EVENT_PORT);
-        flashFailStatusLight();
+        flashFailStatusLight(status);
         resetRegistrationRequest(client);
         return;
     }
@@ -255,14 +198,14 @@ void sendRegistrationRequest(){
 
     if(!ok){
         Serial.println("couldnt send registration request");
-        flashFailStatusLight();
+        flashFailStatusLight(status);
         resetRegistrationRequest(client);
         return;
     }
 
     if(!eventListenC(client)){
         Serial.println("couldnt start listening for registration response");
-        flashFailStatusLight();
+        flashFailStatusLight(status);
         resetRegistrationRequest(NULL);
         return;
     }
@@ -295,12 +238,12 @@ void receiveRegistrationResponse(Event * e, Request * r){
 
     if(!writeConfig(config)){
         Serial.println("failed to save newly registered network creds");
-        flashFailStatusLight();
+        flashFailStatusLight(status);
         return;
     }
 
     Serial.printf("successfully registered device to ssid: %s\n", config->ssid);
-    flashSuccessStatusLight();
+    flashSuccessStatusLight(status);
 
     resetRegistrationRequest(r->client);
 }
@@ -335,14 +278,16 @@ int startSyncListeners(){
 void enterSyncMode(){
     Serial.println("entering sync mode");
 
-    // status light
-    byte blue[3] = {0,0,40};
-    byte red[3] = {40,0,0};
-    int pattern[] = {500,50,0};
-    if(!statusLightSetPattern(status, blue, pattern)){
-        Serial.println("couldnt setup status light");
+    setEnterSyncStatusLight(status);
+    // keep flashing sync status light
+    // till user releases button
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    digitalWrite(BUTTON_PIN, HIGH);
+    while(digitalRead(BUTTON_PIN) == LOW){
+       delay(200); 
     }
 
+    setNetworkConnectStatusLight(status);
     // stop network so it can be restarted in
     // connect mode
     if(!networkStop()){
@@ -354,11 +299,15 @@ void enterSyncMode(){
 
     if(!networkConnect(PUBLIC_SSID, PUBLIC_PASS)){
         Serial.println("couldnt connect to ota network");
-        statusLightSetPattern(status, red, pattern);
+        setFailStatusLight(status);
         return;
     }
     networkAdvertise(OTA_HOSTNAME);
     Serial.printf("OTA advertising hostname: %s\n", OTA_HOSTNAME);
+
+    if(!startSyncListeners()){
+        Serial.println("couldnt start listening for events");
+    }
 
     // ota
     otaOnStart(&otaStarted);
@@ -369,11 +318,8 @@ void enterSyncMode(){
 
     buttonOnTap(btn, sendRegistrationRequest);
 
-    byte green[3] = {0,40,0};
-    int pattern2[] = {3000,50,0};
-    if(!statusLightSetPattern(status, green, pattern2)){
-        Serial.println("couldnt setup status light");
-    }
+    flashSuccessStatusLight(status);
+    setIdleStatusLight(status);
 }
 
 int shouldEnterSyncMode(){
@@ -404,22 +350,11 @@ void setup(){
     Serial.printf("setupStartHeap: %i\n", setupStartHeap);
 
     status = statusLightCreate(STATUS_PIN, 16);
-
-    byte purple[3] = {20,0,20};
-    int pattern[] = {1000,50,0};
-    if(!statusLightSetPattern(status, purple, pattern)){
-        Serial.println("couldnt setup status light");
-    }
+    setFSWriteStatusLight(status);
 
     // load config from fs
     loadConfig();
     logConfig(config);
-
-    // status light
-    byte blue[3] = {0,0,40};
-    if(!statusLightSetPattern(status, blue, pattern)){
-        Serial.println("couldnt setup status light");
-    }
 
     // HACK - works around issue where this device
     // cannot make tcp connections to an esp which
@@ -431,6 +366,8 @@ void setup(){
         enterSyncMode();
         return;
     }
+
+    setNetworkConnectStatusLight(status);
 
     // start network
     switch(config->networkMode){
@@ -461,16 +398,6 @@ void setup(){
             break;
     }
 
-    byte green[3] = {0,40,0};
-    if(!statusLightSetPattern(status, green, pattern)){
-        Serial.println("couldnt setup status light");
-    }
-
-    byte yellow[3] = {20,20,20};
-    if(!statusLightSetPattern(status, yellow, pattern)){
-        Serial.println("couldnt setup status light");
-    }
-
     if(!startRunListeners()){
         Serial.println("couldnt start listening for events");
     }
@@ -490,10 +417,7 @@ void setup(){
         buttonOnTap(btn, sendRegistrationRequest);
     }
 
-    byte orange[3] = {20,20,0};
-    if(!statusLightSetPattern(status, orange, pattern)){
-        Serial.println("couldnt setup status light");
-    }
+    setMiscStatusLight(status);
 
     // toggle switcheroo
     ToggleSwitch toggle = toggleCreate(TOGGLE_LEFT_PIN, TOGGLE_RIGHT_PIN, 1);
@@ -506,14 +430,12 @@ void setup(){
     buttonOnDown(brake, onBrakeDown);
     buttonOnUp(brake, onBrakeUp);
 
-    if(!setIdleStatusLight()){
-        Serial.println("couldnt setup status light");
-    }
-
     // debug log heap usage so i can keep an eye out for leaks
     setupEndHeap = ESP.getFreeHeap();
     Serial.printf("setupEndHeap: %i, delta: %i\n", setupEndHeap, setupStartHeap - setupEndHeap);
     loopAttach(logHeapUsage, 5000, NULL);
+
+    setIdleStatusLight(status);
 }
 
 void loop(){
