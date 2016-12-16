@@ -1,0 +1,27 @@
+0.0.1
+===========
+### Changes
+* made this thing!
+
+### Config
+button pin 14
+status pin 2
+toggle left pin 4
+toggle right pin 0
+brake pin 5
+connects to network with ssid phoxlightpriv, pass phoxlightpriv
+hostname phoxsigbrake
+sync mode (button hold), connects to ssid phoxlight, pass phoxlight
+ota hostname phoxsigbrakeota
+event version 2
+event port 6767
+db ver 3
+
+### Commands
+Run Mode:
+* ping
+* who
+Sync mode:
+* setdefaultconfig
+* setnetworkmode
+* registerconfirm
